@@ -1,0 +1,40 @@
+This is a plain ASCII test file.
+It contains no characters above 0x7F.
+Hello, World! 1234567890
+The quick brown fox jumps over the lazy dog.
+No encoding detection should match this file as Big5.
+This is a plain ASCII test file.
+It contains no characters above 0x7F.
+Hello, World! 1234567890
+The quick brown fox jumps over the lazy dog.
+No encoding detection should match this file as Big5.
+This is a plain ASCII test file.
+It contains no characters above 0x7F.
+Hello, World! 1234567890
+The quick brown fox jumps over the lazy dog.
+No encoding detection should match this file as Big5.
+This is a plain ASCII test file.
+It contains no characters above 0x7F.
+Hello, World! 1234567890
+The quick brown fox jumps over the lazy dog.
+No encoding detection should match this file as Big5.
+This is a plain ASCII test file.
+It contains no characters above 0x7F.
+Hello, World! 1234567890
+The quick brown fox jumps over the lazy dog.
+No encoding detection should match this file as Big5.
+This is a plain ASCII test file.
+It contains no characters above 0x7F.
+Hello, World! 1234567890
+The quick brown fox jumps over the lazy dog.
+No encoding detection should match this file as Big5.
+This is a plain ASCII test file.
+It contains no characters above 0x7F.
+Hello, World! 1234567890
+The quick brown fox jumps over the lazy dog.
+No encoding detection should match this file as Big5.
+This is a plain ASCII test file.
+It contains no characters above 0x7F.
+Hello, World! 1234567890
+The quick brown fox jumps over the lazy dog.
+No encoding detection should match this file as Big5.

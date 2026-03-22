@@ -1,0 +1,10 @@
+-- plugin/big5.lua
+-- Runtime shim for plugin discovery.
+-- This file ensures Neovim's plugin loader can find the plugin when it is
+-- placed on the runtimepath (e.g., via a plugin manager like lazy.nvim or
+-- pckr.nvim).
+--
+-- Actual initialization happens when the user calls:
+--   require("big5").setup({ ... })
+-- in their Neovim configuration. Commands and autocmds are NOT registered
+-- until setup() is called, enabling full lazy-loading compatibility.
