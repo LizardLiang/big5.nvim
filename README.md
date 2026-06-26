@@ -1,6 +1,24 @@
-# Big5ToNeovim
+# big5.nvim
+
+[![Neovim 0.8+](https://img.shields.io/badge/Neovim-0.8%2B-green?logo=neovim)](https://neovim.io)
+[![Lua](https://img.shields.io/badge/Lua-blue?logo=lua&logoColor=white)](https://www.lua.org)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue)](#license)
 
 A Neovim plugin that detects Big5-encoded files and converts them to UTF-8 in place.
+
+## Why big5.nvim?
+
+Legacy **Big5** files are everywhere in the Traditional Chinese (`zh-TW`) world — documents from Taiwan-era software, older websites, and government records were saved in Big5 long before UTF-8 became the norm. When you open one in Neovim, the **encoding detection** falls back to UTF-8 and you get mojibake (garbled text) instead of readable Chinese.
+
+big5.nvim fixes this: it heuristically detects Big5-encoded files, converts them to UTF-8 in place via Neovim's built-in `vim.iconv()`, and sets the buffer `fileencoding` correctly — with **zero external dependencies**.
+
+## Features
+
+- 🔍 Automatic **Big5 encoding detection** using a byte-level heuristic
+- 🔄 In-place **Big5 → UTF-8** conversion (`:Big5ToUtf8`)
+- ✅ Non-destructive encoding check (`:Big5Check`)
+- 🪶 Zero dependencies — pure Lua, no `iconv` binary required at runtime
+- 🇹🇼 Built for legacy **Traditional Chinese** (`zh-TW`) files
 
 ## Requirements
 
@@ -13,7 +31,26 @@ Using [lazy.nvim](https://github.com/folke/lazy.nvim):
 
 ```lua
 {
-  "your-username/Big5ToNeovim",
+  "LizardLiang/big5.nvim",
+  config = function()
+    require("big5").setup()
+  end,
+}
+```
+
+Using [vim-plug](https://github.com/junegunn/vim-plug):
+
+```vim
+Plug 'LizardLiang/big5.nvim'
+" After plug#end(), in your Lua config:
+" require("big5").setup()
+```
+
+Using [packer.nvim](https://github.com/wbthomason/packer.nvim):
+
+```lua
+use {
+  "LizardLiang/big5.nvim",
   config = function()
     require("big5").setup()
   end,
@@ -23,15 +60,15 @@ Using [lazy.nvim](https://github.com/folke/lazy.nvim):
 Using [pckr.nvim](https://github.com/lewis6991/pckr.nvim):
 
 ```lua
-use {
-  "your-username/Big5ToNeovim",
+{
+  "LizardLiang/big5.nvim",
   config = function()
     require("big5").setup()
   end,
 }
 ```
 
-Manual installation: clone the repository and add the directory to your `runtimepath`, then call `require("big5").setup()` in your Neovim configuration.
+Manual installation: clone `LizardLiang/big5.nvim` and add the directory to your `runtimepath`, then call `require("big5").setup()` in your Neovim configuration.
 
 ## Configuration
 
@@ -127,4 +164,4 @@ This plugin handles standard Big5 encoding only. The following are explicitly ou
 
 ## License
 
-MIT
+[MIT](LICENSE)
