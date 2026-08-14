@@ -93,11 +93,21 @@ local REPLACEMENT_CHAR = "\xEF\xBF\xBD"
 
 describe("Integration: :Big5ToUtf8", function()
 
+  -- Snapshotted/restored for every test in this describe block (not just
+  -- TC-INT-02B, which is the only one that currently mutates it) so the
+  -- restore is unconditional: after_each runs even if a test body throws,
+  -- unlike an inline restore at the end of the test, which a failing
+  -- assertion or error partway through would skip -- leaking the override
+  -- into every subsequent spec in the run.
+  local saved_fileencodings
+
   before_each(function()
     big5.setup({ confirm_conversion = true })
+    saved_fileencodings = vim.o.fileencodings
   end)
 
   after_each(function()
+    vim.o.fileencodings = saved_fileencodings
     pcall(vim.api.nvim_create_augroup, "Big5AutoDetect", { clear = true })
     pcall(vim.api.nvim_del_user_command, "Big5Check")
     pcall(vim.api.nvim_del_user_command, "Big5ToUtf8")
@@ -170,11 +180,47 @@ describe("Integration: :Big5ToUtf8", function()
     local messages, restore_notify = capture_notifications()
     local restore_input = mock_input("n")
 
+    -- (BLOCKER 2): buffer.read_raw_bytes() forces an ++enc=latin1 reload on
+    -- every :Big5ToUtf8 invocation now, including ones that end up on this
+    -- whole-file branch. Declining here must restore the buffer (edit!)
+    -- exactly like every other cancel path does, so the buffer's final
+    -- fileencoding/modified state matches a plain, independent :edit of
+    -- the same (unchanged) file -- not an artifact of our internal
+    -- ++enc=latin1 detour.
+    --
+    -- On this box's default 'fileencodings' (ucs-bom,utf-8,default,
+    -- latin1), a *correctly restored* buffer and an *unrestored* one are
+    -- indistinguishable here: this fixture's content isn't valid UTF-8,
+    -- 'default' also fails for it, so natural detection lands on "latin1"
+    -- too -- the exact same value the forced override produces. Control
+    -- the variable: drop "latin1" from the candidate list for this test.
+    -- With "latin1" excluded, a properly-restored buffer re-detects to
+    -- whatever this box's remaining candidates resolve to (empirically,
+    -- "" here, since this fixture's invalid bytes also fail cp950
+    -- validation -- but any value other than "latin1" makes the point:
+    -- the forced override never runs 'fileencodings' at all, so an
+    -- unrestored buffer stays stuck at "latin1" regardless), while an
+    -- unrestored buffer stays stuck at "latin1" from the forced override
+    -- -- now genuinely observable. Restoration is NOT inline here -- the
+    -- describe block's after_each above restores 'fileencodings'
+    -- unconditionally, so it can't leak into later specs even if this
+    -- test throws before reaching its own assertions.
+    vim.o.fileencodings = "utf-8,cp950"
+
     vim.cmd("edit " .. vim.fn.fnameescape(temppath))
+    local bufnr = vim.api.nvim_get_current_buf()
     vim.cmd("Big5ToUtf8")
 
     restore_notify()
     restore_input()
+
+    local original_fileencoding = vim.bo[bufnr].fileencoding
+    local original_modified = vim.bo[bufnr].modified
+
+    vim.cmd("bwipeout!")
+    vim.cmd("edit " .. vim.fn.fnameescape(temppath))
+    local control_fileencoding = vim.bo.fileencoding
+    vim.cmd("bwipeout!")
 
     -- File on disk should be unchanged
     local on_disk = read_file(temppath)
@@ -189,6 +235,13 @@ describe("Integration: :Big5ToUtf8", function()
       end
     end
     assert.is_true(found_cancel, "Expected cancellation notification, got: " .. vim.inspect(messages))
+
+    assert.is_false(original_modified, "Buffer must be restored to unmodified after declining")
+    assert.equal(
+      control_fileencoding,
+      original_fileencoding,
+      "Buffer's fileencoding after declining must match a plain, independent edit of the same file"
+    )
 
     os.remove(temppath)
   end)
@@ -436,6 +489,99 @@ describe("Integration: Auto-detect", function()
       end
     end
     assert.is_false(found_big5_notice, "Should NOT receive Big5 notification for UTF-8 file")
+
+    os.remove(temppath)
+  end)
+
+  -- Auto-detect on a mixed UTF-8-prefix + Big5-tail file: notify-only,
+  -- never converts, never touches the buffer/disk.
+  it("fires an INFO notification for a mixed file, without converting it", function()
+    big5.setup({ auto_detect = true })
+
+    -- Pad the UTF-8 prefix well past is_big5()'s 8192-byte sample window so
+    -- the whole-file heuristic reliably sees only prefix bytes (matching
+    -- the realistic large-file scenario this feature targets) and defers
+    -- to the mixed-tail check instead of misreading the combined sample.
+    local filler = "This is a realistic ASCII log line, used to push the file past the 8KB sample window.\n"
+    local prefix = "UTF-8 Header 中文測試\n"
+    while #prefix < 8192 + 256 do
+      prefix = prefix .. filler
+    end
+    local big5_tail = string.rep("\xA4\xA4\xA4\xE5\xB0\xC5\xB8\xD5", 6)
+    local content = prefix .. big5_tail
+
+    local temppath = os.tmpname()
+    local f = assert(io.open(temppath, "wb"))
+    f:write(content)
+    f:close()
+
+    local messages, restore = capture_notifications()
+    vim.cmd("edit " .. vim.fn.fnameescape(temppath))
+    restore()
+
+    local found = false
+    for _, m in ipairs(messages) do
+      if m.msg == "This file has new Big5 content appended. Use :Big5ToUtf8 to convert it in the buffer."
+        and m.level == vim.log.levels.INFO
+      then
+        found = true
+        break
+      end
+    end
+    assert.is_true(found, "Expected mixed-tail auto-detect notification, got: " .. vim.inspect(messages))
+
+    -- Purely notify-only: no buffer mutation, no disk write.
+    assert.is_false(vim.bo.modified)
+    local on_disk = read_file(temppath)
+    assert.equal(content, on_disk)
+
+    os.remove(temppath)
+  end)
+
+  -- Proves the autocmd path itself (not just detect.looks_mixed_bounded in
+  -- isolation) never scales with file size: opens a LARGE file (well past
+  -- the 2*8192-byte cutoff where the bounded check switches from exact
+  -- classify_mixed to the two-window heuristic) with a huge, deliberately
+  -- "wrong-looking" middle section between the head and tail windows. If
+  -- BufReadPost read (or scanned) the whole file, the misleading middle
+  -- would suppress the notification; if it only reads the two bounded
+  -- windows, the middle is never even looked at and the notification
+  -- fires exactly as it would without the middle section present.
+  it("bounds its I/O even through the real BufReadPost autocmd for a large file with a misleading middle", function()
+    big5.setup({ auto_detect = true })
+
+    local ascii_padding = string.rep("A", 3 * 8192) -- valid UTF-8 head window
+    local misleading_middle = string.rep("\x81\x80", 100000) -- huge invalid-Big5 blob
+    local big5_tail_run = string.rep("\xA4\xA4", 8192) -- valid Big5 tail window
+    local content = ascii_padding .. misleading_middle .. big5_tail_run
+    assert.is_true(#content > 2 * 8192)
+
+    local temppath = os.tmpname()
+    local f = assert(io.open(temppath, "wb"))
+    f:write(content)
+    f:close()
+
+    local messages, restore = capture_notifications()
+    vim.cmd("edit " .. vim.fn.fnameescape(temppath))
+    restore()
+
+    local found = false
+    for _, m in ipairs(messages) do
+      if m.msg == "This file has new Big5 content appended. Use :Big5ToUtf8 to convert it in the buffer."
+        and m.level == vim.log.levels.INFO
+      then
+        found = true
+        break
+      end
+    end
+    assert.is_true(
+      found,
+      "Expected the notification despite the misleading middle -- if this fails, the autocmd path is reading (or being influenced by) more than the bounded head/tail windows"
+    )
+
+    assert.is_false(vim.bo.modified)
+    local on_disk = read_file(temppath)
+    assert.equal(content, on_disk)
 
     os.remove(temppath)
   end)

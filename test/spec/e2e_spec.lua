@@ -264,15 +264,18 @@ describe("E2E Tests", function()
     -- File content should be unchanged after second call
     assert.equal(after_first, after_second, "File should be unchanged after second :Big5ToUtf8 call")
 
-    -- Should notify "does not appear to be Big5"
-    local found_not_big5 = false
+    -- Should notify that nothing new was found since the prior conversion
+    -- (the watermark set by the first, whole-file conversion means the
+    -- second call recognizes this as "already synced," not "never Big5" --
+    -- a more accurate message than the generic not-Big5 wording).
+    local found_up_to_date = false
     for _, m in ipairs(messages) do
-      if m.msg:find("does not appear to be Big5", 1, true) then
-        found_not_big5 = true
+      if m.msg == "No new Big5 content found. The buffer is already up to date." then
+        found_up_to_date = true
         break
       end
     end
-    assert.is_true(found_not_big5, "Expected 'not Big5' notification on second call")
+    assert.is_true(found_up_to_date, "Expected 'already up to date' notification on second call, got: " .. vim.inspect(messages))
 
     os.remove(temppath)
   end)

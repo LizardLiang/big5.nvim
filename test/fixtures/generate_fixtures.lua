@@ -162,6 +162,58 @@ do
   write_binary("binary_random.txt", content)
 end
 
+-- ---------------------------------------------------------------------------
+-- Mixed Big5/UTF-8 tail fixtures.
+-- Simulate an external producer that keeps appending Big5 bytes to a file
+-- already converted to UTF-8: a valid UTF-8 prefix followed by a Big5 tail.
+-- Reuses the same verified Big5 byte sequences as big5_sample.txt above:
+--   0xA4 0xA4 0xA4 0xE5 0xB0 0xC5 0xB8 0xD5 = 中文測試 (Big5)
+-- ---------------------------------------------------------------------------
+local BIG5_BLOCK = "\xA4\xA4\xA4\xE5\xB0\xC5\xB8\xD5" -- 中文測試, 4 valid pairs
+
+-- mixed_utf8_then_big5.txt
+-- Clean case: a UTF-8 prefix (ending in a newline) immediately followed by
+-- a Big5 tail. The tail boundary should land exactly where the Big5 bytes
+-- start, with no newline-snap needed.
+do
+  local utf8_prefix = "UTF-8 Header 中文測試\n" .. "Second line 你好台灣\n"
+  local big5_tail = string.rep(BIG5_BLOCK, 6) -- 48 bytes, 24 valid Big5 pairs
+  write_binary("mixed_utf8_then_big5.txt", utf8_prefix .. big5_tail)
+end
+
+-- mixed_crlf.txt
+-- Same shape as mixed_utf8_then_big5.txt, but the UTF-8 prefix uses CRLF
+-- line endings. Verifies the boundary/newline-snap logic keys off 0x0A
+-- alone, so a CRLF pair is never split across the prefix/tail boundary.
+do
+  local utf8_prefix = "UTF-8 Header 中文測試\r\n" .. "Second line 你好台灣\r\n"
+  local big5_tail = string.rep(BIG5_BLOCK, 6)
+  write_binary("mixed_crlf.txt", utf8_prefix .. big5_tail)
+end
+
+-- mixed_ascii_tail_overshoot.txt
+-- A UTF-8 header followed by pure-ASCII "appended" lines, then the Big5
+-- tail. Since ASCII is valid UTF-8, utf8_prefix_length() legitimately scans
+-- through the ASCII lines as part of the "prefix" -- the boundary overshoots
+-- past where an external process may have actually started appending. This
+-- is harmless: ASCII bytes are byte-identical whether treated as UTF-8 or
+-- as part of a Big5 tail, so no data is corrupted either way.
+do
+  local utf8_header = "Header 標頭\n"
+  local ascii_appended = "LOG: worker heartbeat ok\n" .. "LOG: worker heartbeat ok\n"
+  local big5_tail = string.rep(BIG5_BLOCK, 6)
+  write_binary("mixed_ascii_tail_overshoot.txt", utf8_header .. ascii_appended .. big5_tail)
+end
+
+-- mixed_no_trailing_newline.txt
+-- A UTF-8 prefix followed by a Big5 tail with no trailing newline at
+-- end-of-file. Exercises the vim.bo.eol=false round trip in buffer.lua.
+do
+  local utf8_prefix = "No trailing newline test 中文\n"
+  local big5_tail = string.rep(BIG5_BLOCK, 4) -- 32 bytes, no 0x0A/0x0D bytes
+  write_binary("mixed_no_trailing_newline.txt", utf8_prefix .. big5_tail)
+end
+
 print("\nAll fixtures generated successfully.")
 print("Run the test suite with:")
 print("  nvim --headless -c \"PlenaryBustedDirectory test/ {minimal_init = 'test/minimal_init.lua'}\" -c \"qa\"")

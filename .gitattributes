@@ -1,0 +1,10 @@
+# Encoding test fixtures must round-trip byte-for-byte.
+#
+# These files hold deliberate byte sequences that the test suite asserts on:
+# exact UTF-8/Big5 boundary offsets, a fixture with no trailing newline, and a
+# fixture whose CRLF line endings are the thing under test. Git's line-ending
+# normalization (core.autocrlf) would rewrite those bytes on checkout, shifting
+# every offset and breaking the suite on any machine that clones fresh.
+#
+# -text disables all normalization so the bytes are stored and restored verbatim.
+test/fixtures/*.txt -text

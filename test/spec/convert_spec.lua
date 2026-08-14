@@ -165,3 +165,69 @@ describe("convert.write", function()
   end)
 
 end)
+
+describe("convert.convert_tail_bytes", function()
+
+  local BIG5_BLOCK = "\xA4\xA4\xA4\xE5\xB0\xC5\xB8\xD5" -- 中文測試
+
+  it("converts only the tail, copying the prefix through byte-for-byte", function()
+    local prefix = "UTF-8 Header \xE4\xB8\xAD\xE6\x96\x87\n" -- includes multi-byte UTF-8
+    local tail_raw = string.rep(BIG5_BLOCK, 6)
+    local raw = prefix .. tail_raw
+    local boundary = #prefix
+
+    local result = convert.convert_tail_bytes(raw, boundary)
+
+    assert.is_true(result.ok, "Expected ok=true, got err: " .. tostring(result.err))
+    assert.is_false(result.had_invalid_bytes)
+    assert.is_truthy(result.content)
+
+    -- The critical assertion: the prefix must be byte-for-byte unchanged,
+    -- via direct Lua string equality -- not a length check, not a spot check.
+    assert.equal(raw:sub(1, boundary), result.content:sub(1, boundary))
+
+    -- The converted tail must not contain the replacement character and
+    -- must not equal the raw Big5 bytes (real conversion happened).
+    local converted_tail = result.content:sub(#prefix + 1)
+    assert.is_falsy(converted_tail:find("\xEF\xBF\xBD", 1, true))
+    assert.not_equal(tail_raw, converted_tail)
+
+    assert.equal(#result.content, result.new_offset)
+  end)
+
+  it("sets had_invalid_bytes=true when the tail contains invalid Big5 sequences", function()
+    local prefix = "prefix\n"
+    -- valid pair + invalid pair (trail 0x80 is not a valid Big5 trail byte)
+    local tail_raw = "\xA4\xA4" .. "\x81\x80"
+    local raw = prefix .. tail_raw
+
+    local result = convert.convert_tail_bytes(raw, #prefix)
+
+    assert.is_true(result.ok, "Expected ok=true, got err: " .. tostring(result.err))
+    assert.is_true(result.had_invalid_bytes)
+    assert.equal(prefix, result.content:sub(1, #prefix))
+  end)
+
+  it("leaves the (empty) prefix untouched even when boundary is 0 (whole raw is tail)", function()
+    local tail_raw = string.rep(BIG5_BLOCK, 6)
+    local boundary = 0
+
+    local result = convert.convert_tail_bytes(tail_raw, boundary)
+
+    assert.is_true(result.ok)
+    assert.equal(tail_raw:sub(1, boundary), result.content:sub(1, boundary))
+    assert.equal("", result.content:sub(1, boundary))
+  end)
+
+  it("is a no-op success when boundary == #raw (empty tail)", function()
+    local raw = "all prefix, nothing after boundary"
+
+    local result = convert.convert_tail_bytes(raw, #raw)
+
+    assert.is_true(result.ok)
+    assert.is_false(result.had_invalid_bytes)
+    assert.equal(raw, result.content)
+    assert.equal(#raw, result.new_offset)
+  end)
+
+end)

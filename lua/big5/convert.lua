@@ -108,6 +108,72 @@ function M.try(filepath)
   }
 end
 
+--- Convert only the Big5 tail of a raw byte string to UTF-8, leaving
+--- everything at or before `boundary` copied through byte-for-byte
+--- untouched. Pure byte-string function -- no disk I/O, no filepath. This
+--- is the conversion half of the mixed Big5/UTF-8 tail-sync feature: the
+--- caller supplies the exact raw bytes of a buffer (see big5.buffer) and
+--- the boundary found by detect.classify_mixed().
+---
+--- @param raw string Raw bytes: a UTF-8 prefix followed by a Big5 tail
+--- @param boundary number Byte offset separating the prefix from the tail
+--- @return table result { ok=boolean, err=string|nil, had_invalid_bytes=boolean,
+---   content=string|nil, new_offset=number|nil }
+---   content is prefix .. converted_tail; new_offset is #content, the value
+---   to store as the new big5_synced_offset watermark.
+---   boundary == #raw (empty tail) is a no-op success: content == raw.
+function M.convert_tail_bytes(raw, boundary)
+  local prefix = raw:sub(1, boundary)
+  local tail_raw = raw:sub(boundary + 1)
+
+  if tail_raw == "" then
+    return {
+      ok = true,
+      err = nil,
+      had_invalid_bytes = false,
+      content = prefix,
+      new_offset = #prefix,
+    }
+  end
+
+  -- Pre-scan for invalid Big5 sequences in the tail only -- the prefix is
+  -- already known-good UTF-8 and must never be touched.
+  local had_invalid_bytes = has_invalid_big5_sequences(tail_raw)
+
+  local converted_tail = vim.iconv(tail_raw, "big5", "utf-8")
+
+  if converted_tail == nil then
+    return {
+      ok = false,
+      err = "Conversion failed: tail may not be valid Big5",
+      had_invalid_bytes = false,
+      content = nil,
+      new_offset = nil,
+    }
+  end
+
+  -- Edge case: if the tail was non-empty but output is empty, treat as failure
+  if #converted_tail == 0 and #tail_raw > 0 then
+    return {
+      ok = false,
+      err = "Conversion failed: iconv returned empty output for non-empty tail",
+      had_invalid_bytes = false,
+      content = nil,
+      new_offset = nil,
+    }
+  end
+
+  local content = prefix .. converted_tail
+
+  return {
+    ok = true,
+    err = nil,
+    had_invalid_bytes = had_invalid_bytes,
+    content = content,
+    new_offset = #content,
+  }
+end
+
 --- Write content to a file path in binary mode (overwrites existing file).
 --- This is the second phase of the two-phase convert approach.
 --- Only call this after try() succeeds and the user has confirmed.
